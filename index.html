@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Irregular Verb Master - Onregelmatige Werkwoorden Trainer</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Inter for a clean look -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f7f9fb; }
+        .card { box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); }
+        .progress-bar { transition: width 0.3s ease-in-out; }
+        /* Scrollbar styling for the error list */
+        .custom-scroll::-webkit-scrollbar { width: 8px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background-color: #c7d2fe; border-radius: 4px; }
+        .custom-scroll::-webkit-scrollbar-track { background: #f0f4f8; }
+        
+        /* Custom Keyframe for the Timer */
+        @keyframes timer-run {
+            from { width: 100%; }
+            to { width: 0%; }
+        }
+        .timer-bar {
+            /* De animatie start alleen wanneer de klasse .is-timing wordt toegevoegd in JS */
+            animation: timer-run 4s linear forwards;
+            background-color: #4f46e5; /* Indigo 600 */
+        }
+    </style>
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot, updateDoc, increment, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Zet Firebase Log Level naar Debug voor makkelijker foutopsporing
+        setLogLevel('Debug');
+
+        // --- GLOBALE FIREBASE CONFIGURATIE (VERPLICHT) ---
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        // Gebruik een veilige check voor de configuratie
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' && __firebase_config ? __firebase_config : '{}');
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let app;
+        let db;
+        let auth;
+        let userId = null;
+        let userStatsRef = null;
+        let nextQuestionTimer = null; // Voor de automatische timer
+
+        // --- APPLICATIE GEGEVENS ---
+        const irregularVerbs = [
+            { base: "to arise", past: "arose", participle: "arisen", nl: "ontstaan" },
+            { base: "to awake", past: "awoke", participle: "awoken", nl: "wakker worden" },
+            { base: "to be", past: "was / were", participle: "been", nl: "zijn; worden" },
+            { base: "to bear", past: "bore", participle: "borne", nl: "(ver)dragen" },
+            { base: "to bear", past: "bore", participle: "born", nl: "baren" },
+            { base: "to beat", past: "beat", participle: "beaten", nl: "slaan" },
+            { base: "to become", past: "became", participle: "become", nl: "worden" },
+            { base: "to begin", past: "began", participle: "begun", nl: "beginnen" },
+            { base: "to bend", past: "bent", participle: "bent", nl: "buigen" },
+            { base: "to bet", past: "bet", participle: "bet", nl: "wedden" },
+            { base: "to bind", past: "bound", participle: "bound", nl: "binden" },
+            { base: "to bite", past: "bit", participle: "bit / bitten", nl: "bijten" },
+            { base: "to bleed", past: "bled", participle: "bled", nl: "bloeden" },
+            { base: "to blow", past: "blew", participle: "blown", nl: "blazen" },
+            { base: "to break", past: "broke", participle: "broken", nl: "breken" },
+            { base: "to bring", past: "brought", participle: "brought", nl: "brengen" },
+            { base: "to build", past: "built", participle: "built", nl: "bouwen" },
+            { base: "to burn", past: "burnt / burned", participle: "burnt / burned", nl: "(ver)branden" },
+            { base: "to burst", past: "burst", participle: "burst", nl: "barsten" },
+            { base: "to buy", past: "bought", participle: "bought", nl: "kopen" },
+            { base: "to cast", past: "cast", participle: "cast", nl: "werpen" },
+            { base: "to catch", past: "caught", participle: "caught", nl: "vangen" },
+            { base: "to choose", past: "chose", participle: "chosen", nl: "kiezen" },
+            { base: "to come", past: "came", participle: "come", nl: "komen" },
+            { base: "to cost", past: "cost", participle: "cost", nl: "kosten" },
+            { base: "to creep", past: "crept", participle: "crept", nl: "kruipen" },
+            { base: "to cut", past: "cut", participle: "cut", nl: "snijden; knippen" },
+            { base: "to deal", past: "dealt", participle: "dealt", nl: "handelen" },
+            { base: "to dig", past: "dug", participle: "dug", nl: "graven" },
+            { base: "to do", past: "did", participle: "done", nl: "doen" },
+            { base: "to draw", past: "drew", participle: "drawn", nl: "tekenen; trekken" },
+            { base: "to dream", past: "dreamt / dreamed", participle: "dreamt / dreamed", nl: "dromen" },
+            { base: "to drink", past: "drank", participle: "drunk", nl: "drinken" },
+            { base: "to drive", past: "drove", participle: "driven", nl: "rijden; besturen" },
+            { base: "to dwell", past: "dwelt", participle: "dwelt", nl: "verblijven, wonen" },
+            { base: "to eat", past: "ate", participle: "eaten", nl: "eten" },
+            { base: "to fall", past: "fell", participle: "fallen", nl: "vallen" },
+            { base: "to feed", past: "fed", participle: "fed", nl: "(zich) voeden" },
+            { base: "to feel", past: "felt", participle: "felt", nl:"(zich) voelen" },
+            { base: "to fight", past: "fought", participle: "fought", nl: "vechten" },
+            { base: "to find", past: "found", participle: "found", nl: "vinden" },
+            { base: "to flee", past: "fled", participle: "fled", nl: "vluchten" },
+            { base: "to fly", past: "flew", participle: "flown", nl: "vliegen" },
+            { base: "to forbid", past: "forbade", participle: "forbidden", nl: "verbieden" },
+            { base: "to forget", past: "forgot", participle: "forgotten", nl: "vergeten" },
+            { base: "to forgive", past: "forgave", participle: "forgiven", nl: "vergeven" },
+            { base: "to freeze", past: "froze", participle: "frozen", nl: "(be)vriezen" },
+            { base: "to get", past: "got", participle: "got", nl: "krijgen; worden" },
+            { base: "to give", past: "gave", participle: "given", nl: "geven" },
+            { base: "to go", past: "went", participle: "gone", nl: "gaan" },
+            { base: "to grow", past: "grew", participle: "grown", nl: "groeien" },
+            { base: "to hang", past: "hung", participle: "hung", nl: "(op)hangen" },
+            { base: "to have", past: "had", participle: "had", nl: "hebben" },
+            { base: "to hear", past: "heard", participle: "heard", nl: "horen" },
+            { base: "to hide", past: "hid", participle: "hidden", nl: "(zich) verbergen" },
+            { base: "to hit", past: "hit", participle: "hit", nl: "slaan; raken" },
+            { base: "to hold", past: "held", participle: "held", nl: "(vast) houden" },
+            { base: "to hurt", past: "hurt", participle: "hurt", nl: "bezeren; pijn doen" },
+            { base: "to keep", past: "kept", participle: "kept", nl: "(be)houden; bewaren" },
+            { base: "to kneel", past: "knelt", participle: "knelt", nl: "knielen" },
+            { base: "to know", past: "knew", participle: "known", nl: "weten; kennen" },
+            { base: "to lay", past: "laid", participle: "laid", nl: "leggen" },
+            { base: "to lead", past: "led", participle: "led", nl: "leiden" },
+            { base: "to lean", past: "leant / leaned", participle: "leant / leaned", nl: "leunen" },
+            { base: "to leap", past: "leapt / leaped", participle: "leapt / leaped", nl: "springen" },
+            { base: "to learn", past: "learnt / learned", participle: "learnt / learned", nl: "leren; vernemen" },
+            { base: "to leave", past: "left", participle: "left", nl: "verlaten; vertrekken" },
+            { base: "to lend", past: "lent", participle: "lent", nl: "lenen (aan)" },
+            { base: "to let", past: "let", participle: "let", nl: "laten, toelaten" },
+            { base: "to lie", past: "lay", participle: "lain", nl: "liggen" },
+            { base: "to light", past: "lit / lighted", participle: "lit / lighted", nl: "aansteken" },
+            { base: "to lose", past: "lost", participle: "lost", nl: "verliezen" },
+            { base: "to make", past: "made", participle: "made", nl: "maken" },
+            { base: "to mean", past: "meant", participle: "meant", nl: "bedoelen; betekenen" },
+            { base: "to meet", past: "met", participle: "met", nl: "ontmoeten" },
+            { base: "to pay", past: "paid", participle: "paid", nl: "betalen" },
+            { base: "to put", past: "put", participle: "put", nl: "leggen, zetten" },
+            { base: "to read", past: "read", participle: "read", nl: "lezen" },
+            { base: "to ride", past: "rode", participle: "ridden", nl: "rijden" },
+            { base: "to ring", past: "rang", participle: "rung", nl: "(op)bellen" },
+            { base: "to rise", past: "rose", participle: "risen", nl: "opstaan; opgaan (zon)" },
+            { base: "to run", past: "ran", participle: "run", nl: "(hard) lopen; rennen" },
+            { base: "to saw", past: "sawed", participle: "sawn / sawed", nl: "zagen" },
+            { base: "to say", past: "said", participle: "said", nl: "zeggen" },
+            { base: "to see", past: "saw", participle: "seen", nl: "zien" },
+            { base: "to seek", past: "sought", participle: "sought", nl: "zoeken" },
+            { base: "to sell", past: "sold", participle: "sold", nl: "verkopen" },
+            { base: "to send", past: "sent", participle: "sent", nl: "verzenden, sturen" },
+            { base: "to set", past: "set", participle: "set", nl: "plaatsen, zetten" },
+            { base: "to sew", past: "sewed", participle: "sewn / sewed", nl: "naaien" },
+            { base: "to shake", past: "shook", participle: "shaken", nl: "schudden" },
+            { base: "to shine", past: "shone", participle: "shone", nl: "schijnen; glanzen" },
+            { base: "to shoot", past: "shot", participle: "shot", nl: "schieten" },
+            { base: "to show", past: "showed", participle: "shown / showed", nl: "laten zien, tonen" },
+            { base: "to shrink", past: "shrank", participle: "shrunk", nl: "krimpen" },
+            { base: "to shut", past: "shut", participle: "shut", nl: "sluiten" },
+            { base: "to sing", past: "sang", participle: "sung", nl: "zingen" },
+            { base: "to sink", past: "sank", participle: "sunk", nl: "zinken" },
+            { base: "to sit", past: "sat", participle: "sat", nl: "zitten" },
+            { base: "to sleep", past: "slept", participle: "slept", nl: "slapen" },
+            { base: "to slide", past: "slid", participle: "slid", nl: "glijden" },
+            { base: "to smell", past: "smelt", participle: "smelt", nl: "ruiken" },
+            { base: "to speak", past: "spoke", participle: "spoken", nl: "spreken" },
+            { base: "to spell", past: "spelt / spelled", participle: "spelt / spelled", nl: "spellen" },
+            { base: "to spend", past: "spent", participle: "spent", nl: "uitgeven; doorbrengen" },
+            { base: "to spill", past: "spilt / spilled", participle: "spilt / spilled", nl: "morsen; knoeien" },
+            { base: "to spit", past: "spat", participle: "spat", nl: "spuwen; spugen" },
+            { base: "to split", past: "split", participle: "split", nl: "splijten" },
+            { base: "to spoil", past: "spoilt / spoiled", participle: "spoilt / spoiled", nl: "bederven" },
+            { base: "to spread", past: "spread", participle: "spread", nl: "(zich) verspreiden; uitbreiden" },
+            { base: "to stand", past: "stood", participle: "stood", nl: "staan" },
+            { base: "to steal", past: "stole", participle: "stolen", nl: "stelen" },
+            { base: "to stick", past: "stuck", participle: "stuck", nl: "pakken" },
+            { base: "to sting", past: "stung", participle: "stung", nl: "steken" },
+            { base: "to stink", past: "stank", participle: "stunk", nl: "stinken" },
+            { base: "to strike", past: "struck", participle: "struck", nl: "slaan; staken" },
+            { base: "to swear", past: "swore", participle: "sworn", nl: "zweren; vloeken" },
+            { base: "to sweat", past: "sweat / sweated", participle: "sweat / sweated", nl: "zweten" },
+            { base: "to sweep", past: "swept", participle: "swept", nl: "vegen" },
+            { base: "to swim", past: "swam", participle: "swum", nl: "zwemmen" },
+            { base: "to swing", past: "swung", participle: "swung", nl: "zwaaien; draaien" },
+            { base: "to take", past: "took", participle: "taken", nl: "nemen; brengen" },
+            { base: "to teach", past: "taught", participle: "taught", nl: "onderwijzen" },
+            { base: "to tear", past: "tore", participle: "torn", nl: "(ver)scheuren" },
+            { base: "to tell", past: "told", participle: "told", nl: "zeggen; vertellen" },
+            { base: "to think", past: "thought", participle: "thought", nl: "denken; menen" },
+            { base: "to throw", past: "threw", participle: "thrown", nl: "gooien; werpen" },
+            { base: "to thrust", past: "thrust", participle: "thrust", nl: "stoten" },
+            { base: "to understand", past: "understood", participle: "understood", nl: "begrijpen; verstaan" },
+            { base: "to wake", past: "woke", participle: "woken", nl: "wekken; wakker worden" },
+            { base: "to wear", past: "wore", participle: "worn", nl: "dragen (kleding)" },
+            { base: "to weep", past: "wept", participle: "wept", nl: "wenen; huilen" },
+            { base: "to win", past: "won", participle: "won", nl: "winnen" },
+            { base: "to wind", past: "wound", participle: "wound", nl: "(op)winden" },
+            { base: "to wring", past: "wrung", participle: "wrung", nl: "(uit)wringen" },
+            { base: "to write", past: "wrote", participle: "written", nl: "schrijven" },
+        ];
+
+        const verbParts = ["base", "past", "participle", "nl"];
+        const quizLength = 10;
+
+        // --- APPLICATIE STATUS ---
+        const state = {
+            currentQuestion: 0,
+            quizRound: [], // Array van vragen voor de huidige ronde
+            currentVerb: null,
+            missingPart: null,
+            roundErrors: [], // Fouten in de huidige 10-vragen ronde
+            isQuizActive: false,
+            showSummary: false,
+            isAuthReady: false,
+            loading: true,
+            totalQuestions: 0,
+            totalCorrect: 0,
+            errorLog: {}, // { "be-past": 5, "buy-participle": 2, ... }
+        };
+
+        // --- UTILITY FUNCTIES ---
+
+        const generateVerbKey = (verb, part) => `${verb.base}-${part}`;
+
+        const getWeightedErrorKey = () => {
+            const errorKeys = Object.keys(state.errorLog).filter(key => state.errorLog[key] > 0);
+            if (errorKeys.length === 0) return null;
+
+            let weightedList = [];
+            errorKeys.forEach(key => {
+                for (let i = 0; i < state.errorLog[key]; i++) {
+                    weightedList.push(key);
+                }
+            });
+
+            if (weightedList.length > 100) {
+                 weightedList = weightedList.slice(0, 100);
+            }
+            
+            const randomIndex = Math.floor(Math.random() * weightedList.length);
+            return weightedList[randomIndex];
+        };
+
+        // Normaliseert de string voor vergelijking (trim, lowercase, verwijder 'to ', scheiding door '/')
+        const normalizeAnswer = (answer, part) => {
+            let cleanAnswer = answer.toLowerCase().trim();
+            if (part === 'base' && cleanAnswer.startsWith('to ')) {
+                cleanAnswer = cleanAnswer.substring(3).trim();
+            }
+            // Behandel meerdere correcte opties als afzonderlijke, genormaliseerde strings
+            return cleanAnswer.split('/').map(s => s.trim()).filter(s => s.length > 0);
+        };
+
+        // Controleert of het antwoord correct is (houdt rekening met meerdere opties gescheiden door '/')
+        const isAnswerCorrect = (userAnswer, verb, part) => {
+            const cleanUserAnswers = normalizeAnswer(userAnswer, part);
+            const correctOptions = normalizeAnswer(verb[part], part);
+            
+            return cleanUserAnswers.some(uAnswer => 
+                correctOptions.some(cOption => {
+                    // Verwijder ook eventuele regelmatige/alternatieve varianten om strikt te vergelijken
+                    const finalOption = cOption.replace(/\*$/, '').replace(' / learned', '').replace(' / learned', '').trim();
+                    return finalOption === uAnswer;
+                })
+            );
+        };
+
+
+        // --- FIREBASE LOGICA ---
+
+        const loadStats = async (uid) => {
+            if (!db || !uid) return;
+            userId = uid;
+            // Pad voor private data: /artifacts/{appId}/users/{userId}/irregular_verbs/stats
+            userStatsRef = doc(db, `artifacts/${appId}/users/${userId}/irregular_verbs/stats`);
+
+            try {
+                // Real-time listener op de statistieken
+                onSnapshot(userStatsRef, (docSnap) => {
+                    const data = docSnap.data();
+                    if (data) {
+                        state.errorLog = data.errorLog || {};
+                        state.totalQuestions = data.totalQuestions || 0;
+                        state.totalCorrect = data.totalCorrect || 0;
+                    }
+                    state.loading = false;
+                    updateUI();
+                }, (error) => {
+                    console.error("Fout bij het lezen van statistieken van Firestore:", error);
+                    state.loading = false;
+                    updateUI();
+                });
+
+            } catch (error) {
+                console.error("Initieel laden van statistieken mislukt:", error);
+                state.loading = false;
+                updateUI();
+            }
+        };
+
+        const updateErrorInFirebase = async (verbKey, isCorrect) => {
+            if (!userStatsRef || !state.isAuthReady) return;
+
+            const incrementValue = isCorrect ? increment(-1) : increment(1);
+            const updateData = {
+                totalQuestions: increment(1),
+                totalCorrect: isCorrect ? increment(1) : increment(0)
+            };
+
+            // Zorg ervoor dat fouten niet onder nul gaan
+            if (isCorrect) {
+                if (state.errorLog[verbKey] && state.errorLog[verbKey] > 0) {
+                    updateData[`errorLog.${verbKey}`] = incrementValue;
+                }
+            } else {
+                // Altijd incrementen bij een fout
+                updateData[`errorLog.${verbKey}`] = incrementValue;
+            }
+
+            try {
+                await setDoc(userStatsRef, updateData, { merge: true });
+            } catch (error) {
+                console.error("Fout bij het updaten van statistieken:", error);
+            }
+        };
+        
+        const initializeFirebase = async () => {
+            if (Object.keys(firebaseConfig).length === 0) {
+                console.error("Firebase configuratie ontbreekt. Kan Firestore niet initialiseren.");
+                state.loading = false;
+                return;
+            }
+            
+            try {
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                // 1. Garandeer een gebruiker sessie via custom token of anoniem
+                let authPromise;
+                if (initialAuthToken) {
+                    authPromise = signInWithCustomToken(auth, initialAuthToken).catch(e => {
+                        console.error("Aanmelden met custom token mislukt, terugval naar anoniem:", e);
+                        return signInAnonymously(auth);
+                    });
+                } else {
+                    authPromise = signInAnonymously(auth);
+                }
+                
+                await authPromise;
+
+                // 2. Luisteraar voor auth-status: Roept loadStats aan als user.uid beschikbaar is
+                onAuthStateChanged(auth, (user) => {
+                    if (user && user.uid) {
+                        state.isAuthReady = true;
+                        loadStats(user.uid);
+                    } else {
+                        state.isAuthReady = false;
+                        state.loading = false;
+                        updateUI();
+                    }
+                });
+
+            } catch (error) {
+                console.error("Firebase initialisatiefout:", error);
+                state.loading = false;
+                updateUI();
+            }
+        };
+
+        // --- QUIZ LOGICA ---
+
+        const generateQuestion = (questionIndex) => {
+            let verb, missingPart, verbKey;
+
+            // Prioriteit 1: 30% kans om een fout uit het logboek te herhalen, met een bonus als er fouten zijn
+            const errorKey = getWeightedErrorKey();
+            const useError = Math.random() < 0.3 || (errorKey && Math.random() < 0.7);
+
+            if (useError && errorKey) {
+                const [base, part] = errorKey.split('-');
+                verb = irregularVerbs.find(v => v.base === base);
+                // Valideer of het werkwoord is gevonden (moet altijd zo zijn, tenzij data is aangepast)
+                if (!verb) {
+                    // Terugvallen op willekeurige vraag als verb niet gevonden wordt
+                    return generateRandomQuestion(questionIndex);
+                }
+                missingPart = part;
+                verbKey = errorKey;
+            } else {
+                // Gebruik een willekeurig werkwoord en deel
+                return generateRandomQuestion(questionIndex);
+            }
+
+            const correctValue = verb[missingPart];
+
+            return {
+                verb: verb,
+                missingPart: missingPart,
+                correctValue: correctValue,
+                questionType: 'input',
+                verbKey: verbKey,
+                userAnswer: null,
+                isCorrect: null,
+                questionIndex: questionIndex + 1
+            };
+        };
+
+        const generateRandomQuestion = (questionIndex) => {
+            const verb = irregularVerbs[Math.floor(Math.random() * irregularVerbs.length)];
+            const missingPart = verbParts[Math.floor(Math.random() * verbParts.length)];
+            const verbKey = generateVerbKey(verb, missingPart);
+            
+            return {
+                verb: verb,
+                missingPart: missingPart,
+                correctValue: verb[missingPart],
+                questionType: 'input',
+                verbKey: verbKey,
+                userAnswer: null,
+                isCorrect: null,
+                questionIndex: questionIndex + 1
+            };
+        };
+
+        const startQuiz = () => {
+            if (nextQuestionTimer) clearTimeout(nextQuestionTimer);
+            state.quizRound = [];
+            state.roundErrors = [];
+            state.isQuizActive = true;
+            state.showSummary = false;
+            
+            for (let i = 0; i < quizLength; i++) {
+                state.quizRound.push(generateQuestion(i));
+            }
+            state.currentQuestion = 0;
+            state.currentVerb = state.quizRound[0];
+            updateUI();
+        };
+
+        const checkAnswer = (answer) => {
+            if (state.currentVerb.isCorrect !== null) return; 
+
+            // Wis een eventuele lopende timer voor de zekerheid
+            if (nextQuestionTimer) clearTimeout(nextQuestionTimer);
+
+            const currentVerb = state.currentVerb;
+            const isCorrect = isAnswerCorrect(answer, currentVerb.verb, currentVerb.missingPart);
+
+            currentVerb.userAnswer = answer;
+            currentVerb.isCorrect = isCorrect;
+
+            // Update Firebase log
+            updateErrorInFirebase(currentVerb.verbKey, isCorrect);
+
+            if (!isCorrect) {
+                state.roundErrors.push(currentVerb);
+            }
+
+            updateUI(); // Eerst UI updaten om feedback te tonen
+
+            // Start de timer voor de volgende vraag (4 seconden)
+            nextQuestionTimer = setTimeout(nextQuestion, 4000);
+        };
+
+        const nextQuestion = () => {
+            // Wis de timer nadat deze is uitgevoerd
+            if (nextQuestionTimer) clearTimeout(nextQuestionTimer);
+            nextQuestionTimer = null;
+            
+            const nextIndex = state.currentQuestion + 1;
+
+            if (nextIndex < quizLength) {
+                state.currentQuestion = nextIndex;
+                state.currentVerb = state.quizRound[nextIndex];
+            } else {
+                state.isQuizActive = false;
+                state.showSummary = true;
+            }
+            updateUI();
+        };
+
+        // --- UI RENDERING ---
+
+        const updateUI = () => {
+            const container = document.getElementById('app-container');
+            if (!container) return;
+            
+            if (state.loading) {
+                 container.innerHTML = renderLoadingScreen();
+                return;
+            }
+
+            if (!state.isQuizActive && !state.showSummary) {
+                container.innerHTML = renderStartScreen();
+            } else if (state.showSummary) {
+                container.innerHTML = renderSummaryScreen();
+            } else if (state.isQuizActive) {
+                container.innerHTML = renderQuestionScreen();
+                
+                // Direct Focus Logica
+                const isAnswered = state.currentVerb.isCorrect !== null;
+                if (!isAnswered) {
+                    // Geef focus aan het inputveld wanneer een nieuwe vraag wordt geladen
+                    setTimeout(() => {
+                        const inputField = document.getElementById('answerInput');
+                        if (inputField) inputField.focus();
+                    }, 50); // Een kleine delay om de DOM zeker te laten renderen
+                }
+            }
+        };
+
+        const renderLoadingScreen = () => {
+             return `
+                <div class="flex flex-col items-center justify-center min-h-screen p-4">
+                    <svg class="animate-spin -ml-1 mr-3 h-8 w-8 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <p class="mt-4 text-gray-600">Bezig met laden van gebruikersprofiel en statistieken...</p>
+                </div>
+            `;
+        }
+        
+        const renderStartScreen = () => {
+            const percentage = state.totalQuestions > 0 ? ((state.totalCorrect / state.totalQuestions) * 100).toFixed(1) : 0;
+            const errorCount = Object.values(state.errorLog).reduce((sum, count) => sum + (count > 0 ? count : 0), 0);
+
+            return `
+                <div class="flex flex-col items-center justify-center min-h-screen p-4">
+                    <div class="bg-white card p-8 rounded-xl w-full max-w-md text-center">
+                        <h1 class="text-3xl font-bold text-indigo-600 mb-2">Irregular Verb Master</h1>
+                        <p class="text-gray-600 mb-6">Oefen de ${irregularVerbs.length} onregelmatige werkwoorden d.m.v. open vragen.</p>
+                        
+                        <div class="border border-indigo-200 p-4 rounded-lg mb-6 bg-indigo-50">
+                            <h2 class="text-lg font-semibold text-indigo-800 mb-2">Mijn Statistieken</h2>
+                            <p class="text-sm text-gray-700">Totaal vragen: <span class="font-bold">${state.totalQuestions}</span></p>
+                            <p class="text-sm text-gray-700">Totaal correct: <span class="font-bold">${state.totalCorrect}</span></p>
+                            <p class="text-sm text-gray-700">Gemiddelde score: <span class="font-bold text-green-600">${percentage}%</span></p>
+                            ${errorCount > 0 ? `<p class="text-sm text-red-500 mt-2 font-semibold">Oefenpunten: ${errorCount} fouten staan in de wachtrij!</p>` : ''}
+                        </div>
+
+                        <button onclick="startQuiz()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200">
+                            Start Nieuwe Reeks (10 Vragen)
+                        </button>
+                        <p class="text-xs text-gray-400 mt-4">Gebruiker ID: ${userId || 'Laden...'}</p>
+                    </div>
+                </div>
+            `;
+        };
+        
+        const renderQuestionScreen = () => {
+            const verb = state.currentVerb.verb;
+            const missingPart = state.currentVerb.missingPart;
+            const currentQIndex = state.currentQuestion;
+            const progressWidth = ((currentQIndex + 1) / quizLength) * 100;
+            const isAnswered = state.currentVerb.isCorrect !== null;
+            const isCorrect = state.currentVerb.isCorrect;
+
+            let interactionHTML = '';
+            const inputId = 'answerInput';
+            
+            // Render de vier delen (Infinitief, Past, Participle, NL)
+            let verbPartsHTML = verbParts.map(part => {
+                const label = part === 'base' ? 'Infinitief (EN)' : part === 'past' ? 'Past Simple' : part === 'participle' ? 'Past Participle' : 'Nederlands';
+                let content = verb[part];
+                let className = "font-medium text-gray-700";
+
+                if (part === missingPart) {
+                    className = "font-extrabold text-lg flex flex-col justify-center items-center h-full";
+                    
+                    if (isAnswered) {
+                        // Toon ingevuld antwoord
+                        const userAnswerDisplay = state.currentVerb.userAnswer || '[Leeg]';
+                        className += isCorrect ? ' text-green-600' : ' text-red-600 line-through';
+                        content = `
+                            <span class="text-base">${userAnswerDisplay}</span>
+                            ${!isCorrect ? `<span class="text-green-600 font-bold text-sm mt-1">(${state.currentVerb.correctValue})</span>` : ''}
+                        `;
+                    } else {
+                        // Toon invulveld
+                        className = "h-14"; // Behoudt hoogte bij input
+                        content = `
+                            <input id="${inputId}" type="text" placeholder="Typ hier..." 
+                                class="w-full h-full p-2 border-2 border-indigo-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 text-base text-center"
+                                onkeypress="if(event.key === 'Enter') checkAnswer(document.getElementById('${inputId}').value)">
+                        `;
+                    }
+                } else {
+                    // Toon bekende vorm
+                    if (part === 'base') {
+                        content = content.replace('to ', ''); // Verberg 'to ' voor de weergave
+                    }
+                    content = `<span class="text-base">${content}</span>`;
+                }
+
+                return `
+                    <div class="flex flex-col p-3 border rounded-lg bg-gray-50/50">
+                        <span class="text-xs font-semibold uppercase text-indigo-400 mb-1">${label}</span>
+                        <div class="${className} flex-grow">
+                            ${content}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            
+            if (!isAnswered) {
+                interactionHTML = `
+                    <button onclick="checkAnswer(document.getElementById('${inputId}').value)" 
+                        class="mt-4 w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-lg transition duration-200">
+                        Controleer Antwoord
+                    </button>
+                `;
+            } else {
+                interactionHTML = `
+                    <div class="mt-4 p-4 rounded-lg ${isCorrect ? 'bg-green-100 border-green-400' : 'bg-red-100 border-red-400'} border-2 text-center relative overflow-hidden">
+                        <!-- Timer bar bovenaan de feedback box -->
+                        <div class="absolute top-0 left-0 h-1 timer-bar"></div>
+                        <p class="text-xl font-bold ${isCorrect ? 'text-green-800' : 'text-red-800'}">
+                            ${isCorrect ? 'Correct!' : 'Fout!'}
+                        </p>
+                        <p class="mt-2 text-sm text-gray-700">
+                            Automatisch naar volgende vraag in 4 seconden...
+                        </p>
+                    </div>
+                `;
+            }
+
+
+            return `
+                <div class="flex flex-col items-center justify-center min-h-screen p-4">
+                    <div class="bg-white card p-6 rounded-xl w-full max-w-lg">
+                        
+                        <!-- Progress Bar -->
+                        <div class="mb-6">
+                            <div class="text-sm font-semibold text-indigo-600 mb-1">Vraag ${currentQIndex + 1} van ${quizLength}</div>
+                            <div class="h-2 bg-gray-200 rounded-full">
+                                <div class="progress-bar h-2 bg-indigo-500 rounded-full" style="width: ${progressWidth}%"></div>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-4 mb-8">
+                            ${verbPartsHTML}
+                        </div>
+                        
+                        <div class="mt-6">
+                            ${interactionHTML}
+                        </div>
+                    </div>
+                </div>
+            `;
+        };
+
+        const renderSummaryScreen = () => {
+            const totalCorrect = quizLength - state.roundErrors.length;
+            const percentage = (totalCorrect / quizLength) * 100;
+
+            const errorListHTML = state.roundErrors.map(error => {
+                const missingPartLabel = error.missingPart === 'base' ? 'Infinitief' : error.missingPart === 'past' ? 'Past Simple' : error.missingPart === 'participle' ? 'Past Participle' : 'Nederlands';
+                return `
+                    <li class="mb-2 p-3 bg-red-50 rounded-lg text-sm">
+                        <span class="font-bold text-indigo-700">${error.verb.base}</span>:
+                        Jouw antwoord (<span class="text-red-600">${error.userAnswer || 'niet ingevuld'}</span>) was fout.
+                        Het ontbrekende deel was de <span class="font-semibold">${missingPartLabel}</span>.
+                        Correct: <span class="font-bold text-green-700">${error.correctValue}</span>
+                    </li>
+                `;
+            }).join('');
+
+            return `
+                <div class="flex flex-col items-center justify-center min-h-screen p-4">
+                    <div class="bg-white card p-8 rounded-xl w-full max-w-lg">
+                        <h1 class="text-3xl font-bold ${percentage >= 70 ? 'text-green-600' : 'text-red-600'} mb-4 text-center">Reeks Voltooid!</h1>
+                        
+                        <div class="text-center mb-6 border-b pb-4">
+                            <p class="text-xl text-gray-700">Je score: <span class="font-extrabold">${totalCorrect} / ${quizLength}</span></p>
+                            <p class="text-4xl font-black mt-2">${percentage.toFixed(0)}%</p>
+                        </div>
+                        
+                        ${state.roundErrors.length > 0 ? `
+                            <h2 class="text-xl font-semibold text-red-700 mb-3">Fouten (${state.roundErrors.length}):</h2>
+                            <ul class="list-none mb-6 max-h-48 overflow-y-auto pr-2 custom-scroll">
+                                ${errorListHTML}
+                            </ul>
+                            <p class="text-sm text-gray-600 mb-4">Deze fouten komen met hogere prioriteit terug in de volgende reeksen om ze beter in te slijpen!</p>
+                        ` : `
+                            <div class="p-4 bg-green-50 rounded-lg mb-6">
+                                <p class="text-lg font-semibold text-green-700 text-center">Fantastisch! Geen fouten deze ronde!</p>
+                            </div>
+                        `}
+
+                        <button onclick="startQuiz()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200">
+                            Start Volgende Reeks (10 Vragen)
+                        </button>
+                    </div>
+                </div>
+            `;
+        };
+
+        // --- GLOBALE EXPORT EN INIT ---
+        window.startQuiz = startQuiz;
+        window.checkAnswer = checkAnswer;
+        window.nextQuestion = nextQuestion; 
+        window.updateUI = updateUI;
+        window.onload = initializeFirebase;
+    </script>
+</head>
+<body>
+    <div id="app-container" class="min-h-screen">
+        <!-- Inhoud wordt hier door JavaScript geïnjecteerd -->
+    </div>
+</body>
+</html>
